@@ -1,0 +1,12 @@
+.project
+src/lib/config/SystemConfig.js
+src/public/web/js/system_config.js
+src/node_modules
+*.log
+src/uploads/*
+!src/uploads/.keep
+.idea/*
+src/tool/temp/*
+!src/tool/temp/.keep
+dist
+
