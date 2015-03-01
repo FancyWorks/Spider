@@ -5,7 +5,6 @@
 var $ = require('jquery');
 
 
-
 String.format = function() {
 
     var s = arguments[0];
@@ -17,9 +16,6 @@ String.format = function() {
         s = s.replace(reg, arguments[i + 1]);
 
     }
-
-
-
     return s;
 
 };
