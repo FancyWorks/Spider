@@ -113,6 +113,33 @@ function GetContent(filename,url,setting) {
 //    console.log(_.findIndex(data,{id:71634149}));
 //});
 
+ReadFileAsString('a.txt').then(function(page_content){
+//    var str = page_content.substring(page_content.indexOf('点击工程楼号可查询许可销售房源'));
+//    var re = /<table.*?<\/table>/;
+//    var table_str = re.exec(str)[0];
+    var html = $(page_content);
+    var tr = html.find('td[bgcolor=#438ece]').first().parent().parent();
+    var trs = $(html.find('td[bgcolor=#a6d0e7]')[2]).find('tr');
+
+    var page_text = trs.last().text();
+    var total_building_count = /共(\d+)?页/.exec(page_text)[1];
+    var page_building_count = /共(\d+)?条记录/.exec(page_text)[1];
+    console.log(page_building_count,total_building_count);
+
+    for(var i=1;i<page_building_count;++i){
+        //正常楼行, 有5列
+        if($(trs[i]).find('>td').size()===5) {
+            console.log();
+        }
+        else {
+            //已经到了最后一页的最后一个有效行结束
+            break;
+        }
+    }
+});
+
+return 0;
+
 //db.query('delete from xm');
 var g_exist_xms = [];
 var g_new_xms = [];
