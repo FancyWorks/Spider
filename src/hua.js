@@ -113,32 +113,127 @@ function GetContent(filename,url,setting) {
 //    console.log(_.findIndex(data,{id:71634149}));
 //});
 
-ReadFileAsString('a.txt').then(function(page_content){
-//    var str = page_content.substring(page_content.indexOf('点击工程楼号可查询许可销售房源'));
-//    var re = /<table.*?<\/table>/;
-//    var table_str = re.exec(str)[0];
+function AnalyseLouListPage(xmid,exist_lous,new_lous,page_content) {
     var html = $(page_content);
-    var tr = html.find('td[bgcolor=#438ece]').first().parent().parent();
+//    var tr = html.find('td[bgcolor=#438ece]').first().parent().parent();
     var trs = $(html.find('td[bgcolor=#a6d0e7]')[2]).find('tr');
 
-    var page_text = trs.last().text();
-    var total_building_count = /共(\d+)?页/.exec(page_text)[1];
-    var page_building_count = /共(\d+)?条记录/.exec(page_text)[1];
-    console.log(page_building_count,total_building_count);
 
-    for(var i=1;i<page_building_count;++i){
+    for(var i=1;i<trs.size();++i){
         //正常楼行, 有5列
-        if($(trs[i]).find('>td').size()===5) {
-            console.log();
+        var tds = $(trs[i]).find('>td');
+        if(tds.size()===5) {
+            var lou = {
+                id: /lid=(\d+)?"/.exec($(tds[0]).html())[1],
+                name: $(tds[0]).attr('title'),
+                xmid: xmid,
+                xkz:$(tds[1]).attr('title'),
+                address:$(tds[2]).attr('title'),
+                zts:$(tds[3]).text().trim(),
+                zmj:$(tds[4]).text().trim()
+            };
+            if(_.findIndex(exist_lous,{id:parseInt(lou.id)})<0)
+                new_lous.push(lou);
         }
         else {
             //已经到了最后一页的最后一个有效行结束
             break;
         }
     }
+}
+
+//ReadFileAsString('a.txt').then(function(page_content){
+//    var xmid = 11;
+//
+//    var exist_lous = [];
+//    var new_lous = [];
+//
+//    for(var i in new_lous) {
+//        db.insert('lou',new_lous[i]);
+//    }
+//});
+
+/*
+ * 加载楼栋信息
+ * 1. 加载楼盘第一页信息, 取出页数, 第一页楼信息 (楼名,ID,套数,总面积)
+ * 2. 加载其他页的楼信息 (楼名,ID,套数,总面积)
+ *   $('.table_lb1'), strong
+ *
+ * 加载房间信息
+ * 1. 加载房间信息, 取出楼名,保存, 取表信息, 保存成字符串
+ *   $('.table_lb1'), strong
+ * */
+function LoadLouList(xmid,xmbh) {
+    var deferred = Q.defer();
+    logger.info('Loading Lou List: ',xmid);
+    var filename = 'lou_page/xm_'+xmid+'_page_';
+    var url = 'http://dlfd.gov.cn/fdc/D01XmxxAction.do?Control=detail&id='+xmid+'&xmbh='+xmbh+'&pageNo=';
+    var promiseArray = [];
+    var getPageCountPromise = GetContent(filename+1,url+1,{reload:true});
+    promiseArray.push(getPageCountPromise);
+
+    var getExistLousPromise = db.select('lou',{xmid:xmid});
+    var new_lous = [];
+
+    getPageCountPromise.then(function(page_content){
+        var html = $(page_content);
+        var trs = $(html.find('td[bgcolor=#a6d0e7]')[2]).find('tr');
+        var page_text = trs.last().text();
+        var page_building_count = /共(\d+)?页/.exec(page_text)[1];
+        for(var i=2;i<=page_building_count;++i) {
+            promiseArray.push(GetContent(filename+i,url+i,{reload:true}));
+        }
+        getExistLousPromise.then(function(exist_lous){
+            Q.all(promiseArray).then(function(contentArr){
+                logger.info('xmid:%d, all lou list page loaded',xmid);
+                var insertPromiseArray = [];
+                _.forEach(contentArr,function(content,index){
+                    console.log('AnalyseLouPage ',index);
+                    AnalyseLouListPage(xmid,exist_lous,new_lous,contentArr[index]);
+                    _.forEach(new_lous,function(lou,index){
+                        insertPromiseArray.push(db.insert('lou',lou));
+                    });
+                });
+                Q.all(insertPromiseArray).then(function(){
+                    deferred.resolve();
+                });
+            });
+        });
+    });
+    return deferred.promise;
+}
+
+function LoadLouDetailPage(xmid,lid) {
+    var deferred = Q.defer();
+    var filename = 'lou_detail_page/xmid_'+xmid+'_lid_'+lid+'_page.txt';
+    var url = 'http://dlfd.gov.cn/fdc/D01XmxxAction.do?Control=lxxdetail_1&xmid='+xmid+'&lid='+lid;
+    GetContent(filename,url,{reload:true}).then(function(page_content){
+        var html = $(page_content);
+        var detail = {
+            name: html.find('strong').first().text().trim(),
+            lid:lid,
+            xmid:xmid,
+            content: html.find('.table_lb1').html()
+        };
+        db.insert('lou_data_daily',detail).then(function(){
+            deferred.resolve();
+        });
+    });
+    return deferred.promise;
+}
+
+db.select('lou').then(function(lous){
+    _.forEach(lous,function(lou,index){
+        (function(lou){
+            LoadLouDetailPage(lou.xmid,lou.id).then(function(){
+                console.log('load lou detail page done',lou.name,lou.xmid,lou.id,'index=',index,lous.length);
+            });
+        })(lou);
+    });
 });
 
-return 0;
+return ;
+
 
 //db.query('delete from xm');
 var g_exist_xms = [];
@@ -146,7 +241,7 @@ var g_new_xms = [];
 var g_url = "http://dlfd.gov.cn/fdc/D01XmxxAction.do?Control=select&pageNo=";
 var g_xm_count = 0;
 var g_xm_page_count = 0;
-var g_reload_page = false;
+var g_reload_page = true;
 var g_xmPagePromiseArray = [];
 
 var existXMPromise = db.select('xm');
@@ -204,6 +299,7 @@ function AnalyseXMPage(page_content,xms) {
  * 所有项目列表的页面加载完成
  * */
 function AnalyseAllXMPage (xms) {
+    var deferred = Q.defer();
     Q.all(g_xmPagePromiseArray).then(function(contentArr){
         logger.info('all xm page loaded');
         _.forEach(contentArr,function(content,index){
@@ -211,10 +307,15 @@ function AnalyseAllXMPage (xms) {
             AnalyseXMPage(content,xms);
         });
         console.log('new xm count',g_new_xms.length);
+        var insertPromiseArray = [];
         _.forEach(g_new_xms,function(xm){
-            db.insert('xm',xm);
+            insertPromiseArray.push(db.insert('xm',xm));
         });
+        Q.all(insertPromiseArray).then(function(){
+            deferred.resolve();
+        })
     });
+    return deferred.promise;
 }
 
 var getPageCountPromise = GetContent('./xm_page/xm_page_1.txt',g_url+1,{reload:g_reload_page});
@@ -236,7 +337,14 @@ getPageCountPromise.then(function(content) {
     }
     existXMPromise.then(function(data){
         g_exist_xms = data;
-        AnalyseAllXMPage(data);
+        Q.all([db.select('xm'),AnalyseAllXMPage(data)]).then(function(dataArr){
+            console.log('kkk',dataArr[0].length);
+            _.forEach(dataArr[0],function(xm){
+                LoadLouList(xm.id,xm.bh).then(function(){
+                    logger.info('==Load lous all done',xm.id,xm.name);
+                });
+            });
+        });
     });
 });
 
