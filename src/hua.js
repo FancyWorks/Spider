@@ -222,17 +222,6 @@ function LoadLouDetailPage(xmid,lid) {
     return deferred.promise;
 }
 
-db.select('lou').then(function(lous){
-    _.forEach(lous,function(lou,index){
-        (function(lou){
-            LoadLouDetailPage(lou.xmid,lou.id).then(function(){
-                console.log('load lou detail page done',lou.name,lou.xmid,lou.id,'index=',index,lous.length);
-            });
-        })(lou);
-    });
-});
-
-return ;
 
 
 //db.query('delete from xm');
@@ -335,14 +324,30 @@ getPageCountPromise.then(function(content) {
     for(var i=2; i<=g_xm_page_count; ++i) {
         g_xmPagePromiseArray.push(GetContent('./xm_page/xm_page_'+i+'.txt',g_url+i,{reload:g_reload_page}));
     }
+    var loadLouPromiseArray = [];
     existXMPromise.then(function(data){
         g_exist_xms = data;
         Q.all([db.select('xm'),AnalyseAllXMPage(data)]).then(function(dataArr){
             console.log('kkk',dataArr[0].length);
             _.forEach(dataArr[0],function(xm){
-                LoadLouList(xm.id,xm.bh).then(function(){
+                var louPromise = LoadLouList(xm.id,xm.bh).then(function(){
                     logger.info('==Load lous all done',xm.id,xm.name);
                 });
+                loadLouPromiseArray.push(louPromise);
+            });
+        });
+    });
+
+
+    Q.all(loadLouPromiseArray).then(function(){
+        logger.info('==========Load lous are all OK. Now start to load lou detail==========');
+        db.select('lou').then(function(lous){
+            _.forEach(lous,function(lou,index){
+                (function(lou){
+                    LoadLouDetailPage(lou.xmid,lou.id).then(function(){
+                        console.log('load lou detail page done',lou.name,lou.xmid,lou.id,'index=',index,lous.length);
+                    });
+                })(lou);
             });
         });
     });
